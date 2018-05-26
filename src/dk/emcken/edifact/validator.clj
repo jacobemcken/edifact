@@ -24,36 +24,43 @@ Remember only the first error is returned.")
 
 (def not-empty? (comp not empty?))
 
-(defmulti valid?
-  "Validates an edifact component."
+(defmulti validate
+  "Validates an edifact component. Returns string with error message upon failure
+  otherwise nil."
   (fn [component-rule _] (type component-rule)))
 
-(defmethod valid? java.lang.String
+(defmethod validate java.lang.String
   [component-rule component]
-  (= component-rule component))
+  (when (not= component-rule component)
+    (str "Must match \"" component-rule "\"")))
 
-(defmethod valid? clojure.lang.PersistentHashSet
+(defmethod validate clojure.lang.PersistentHashSet
   [component-rule component]
-  (contains? component-rule component))
+  (when (not (contains? component-rule component))
+    "Must match item in set"))
 
-(defmethod valid? clojure.lang.IFn
+(defmethod validate clojure.lang.IFn
   [component-rule-fn component]
-  (component-rule-fn component))
+  (when (not (component-rule-fn component))
+    "Must conform to predicate"))
 
-(defmethod valid? java.util.regex.Pattern
+(defmethod validate java.util.regex.Pattern
   [component-rule-pattern component]
-  (re-find component-rule-pattern component))
+  (when (not (re-find component-rule-pattern component))
+    "Must match regular expression"))
 
-(defmethod valid? nil
+(defmethod validate nil
   [_ _]
-  true)
+  nil)
 
 (defn validate-element
   "Takes a list of validation rules describing an element and returns a hashmap
   describing the first component in that element that doesn't conform."
   [rules element position]
-  (let [validation (map valid? rules (concat element (repeat nil)))]
-    (first (keep-indexed #(when-not %2 {:component (inc %1) :element (+ 2 position)}) validation))))
+  (let [validation (map validate rules (concat element (repeat nil)))]
+    (first (keep-indexed #(when %2 {:component (inc %1)
+                                    :element (+ 2 position)
+                                    :error %2}) validation))))
 
 (defn validate-segment
   "Takes a list of validation rules describing a segment and returns a hashmap
