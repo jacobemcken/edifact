@@ -46,10 +46,10 @@ the schemafication."
   (fn [[rule-name] _] (type rule-name)))
 
 (defmethod match java.lang.String
-  [[rule-tag _ validation] [[[segment-tag] & elements :as segment] & remaining-segments]]
+  [[rule-tag _ validation] [[[segment-tag] & elements :as segment] & remaining-segments :as segments]]
   (when (= rule-tag segment-tag)
     (if-let [error (validator/validate-segment validation elements)]
-      (throw (ex-info "Unable to validate segment" error))
+      (throw (ex-info "Unable to validate segment" (assoc error :type ::validation :segment (count segments))))
       (vector remaining-segments segment))))
 
 (defmethod match clojure.lang.Keyword
@@ -59,7 +59,9 @@ the schemafication."
       (when-not (nil? schemafication)
         (vector remaining-segments (vector group-name schemafication))))
     (catch clojure.lang.ExceptionInfo e
-      (when-not (empty? (ex-data e))
+      ;; Structure errors inside segment groups are allowed
+      ;; because when a segment group cease to repeat the structure won't match
+      (when-not (= (get (ex-data e) :type) ::structure)
         (throw e)))))
 
 (defn dec-rule
@@ -70,15 +72,19 @@ the schemafication."
     [(apply conj [rule-name [(dec min-rep) (dec max-rep)]] validation)]))
 
 (defn skip-rule
-  [[rule-name [min-rep _] & _]]
+  [[rule-name [min-rep _] & _] segments]
   (when (pos? min-rep)
-    (throw (ex-info (str "Unable to find expected segment: " rule-name) {}))))
+    (let [error-msg (str "Unable to find mandatory segment: " rule-name)]
+      (throw (ex-info error-msg
+                      {:type ::structure
+                       :segment (count segments)
+                       :error error-msg})))))
 
 (defn apply-rules
   [[rule & rest-rules] segments]
   (let [[remaining-segments schemafication] (match rule segments)]
     (vector
-     (concat (if schemafication (dec-rule rule) (skip-rule rule)) rest-rules)
+     (concat (if schemafication (dec-rule rule) (skip-rule rule segments)) rest-rules)
      (if schemafication remaining-segments segments) ; why not always remaining segments?
      schemafication)))
 
